@@ -11,6 +11,30 @@ import plotly.express as px
 # ------------------------------------
 st.set_page_config(page_title="Dashboard de Investimentos", page_icon="💹", layout="wide")
 
+# --- Gate simples por senha única ---
+def require_login():
+    secret = st.secrets.get("APP_PASSWORD")
+    if not secret:
+        return  # se não existir senha, não bloqueia
+
+    if st.session_state.get("auth_ok"):
+        return
+
+    with st.sidebar:
+        st.header("🔐 Acesso")
+        pwd = st.text_input("Senha", type="password")
+        if st.button("Entrar"):
+            if pwd.strip() == str(secret).strip():
+                st.session_state["auth_ok"] = True
+                st.rerun()
+            else:
+                st.error("Senha inválida.")
+
+    if not st.session_state.get("auth_ok"):
+        st.stop()
+
+require_login()
+
 def fmt_brl(v):
     return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".") if pd.notna(v) else v
 
