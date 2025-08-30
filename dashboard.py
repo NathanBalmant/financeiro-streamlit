@@ -14,23 +14,6 @@ st.set_page_config(page_title="Dashboard de Investimentos", page_icon="💹", la
 def fmt_brl(v):
     return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".") if pd.notna(v) else v
 
-# ---------- LOGIN GATE ----------
-def require_login():
-    if st.session_state.get("auth_ok"):
-        return
-    with st.sidebar:
-        st.header("🔐 Acesso")
-        pwd = st.text_input("Senha", type="password")
-        if st.button("Entrar"):
-            if "APP_PASSWORD" in st.secrets and pwd == st.secrets["APP_PASSWORD"]:
-                st.session_state["auth_ok"] = True
-                st.rerun()
-            else:
-                st.error("Senha inválida.")
-    if not st.session_state.get("auth_ok"):
-        st.stop()
-
-require_login()
 
 # ---------- GOOGLE SHEETS CLIENT (via secrets, read-only) ----------
 @st.cache_resource
