@@ -14,10 +14,33 @@ st.set_page_config(page_title="Dashboard de Investimentos", page_icon="💹", la
 def fmt_brl(v):
     return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".") if pd.notna(v) else v
 
+# ---------- LOGIN GATE ----------
+def require_login():
+    if st.session_state.get("auth_ok"):
+        return
+    with st.sidebar:
+        st.header("🔐 Acesso")
+        pwd = st.text_input("Senha", type="password")
+        if st.button("Entrar"):
+            if "APP_PASSWORD" in st.secrets and pwd == st.secrets["APP_PASSWORD"]:
+                st.session_state["auth_ok"] = True
+                st.rerun()
+            else:
+                st.error("Senha inválida.")
+    if not st.session_state.get("auth_ok"):
+        st.stop()
+
+require_login()
+
+# ---------- GOOGLE SHEETS CLIENT (via secrets, read-only) ----------
 @st.cache_resource
 def gs_client():
-    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-    creds = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", scope)
+    SCOPES = [
+        "https://www.googleapis.com/auth/spreadsheets.readonly",
+        "https://www.googleapis.com/auth/drive.readonly",
+    ]
+    sa_dict = dict(st.secrets["gcp_service_account"])
+    creds = ServiceAccountCredentials.from_json_keyfile_dict(sa_dict, SCOPES)
     return gspread.authorize(creds)
 
 # ✅ sem TTL (você controla quando recarregar)
@@ -77,26 +100,25 @@ with col_reload:
 total_patrimonio = df["Valor"].sum()
 top_bank = df.groupby("Banco")["Valor"].sum().sort_values(ascending=False).head(1)
 
-c1, c2, c3 = st.columns(3)
+c1, c2, c3, c4 = st.columns(4)
 c1.metric("Patrimônio Total", fmt_brl(total_patrimonio))
 c2.metric("Qtd. Ativos", f"{df['Caracteristica'].nunique()}")
+c3.metric("Qtd. Bancos", f"{df['Banco'].nunique()}")
 if not top_bank.empty:
-    c3.metric("Maior Banco", f"{top_bank.index[0]} — {fmt_brl(top_bank.iloc[0])}")
+    c4.metric("Maior Banco", f"{top_bank.index[0]} — {fmt_brl(top_bank.iloc[0])}")
 
 st.markdown("---")
 
 # ------------------------------------
 # GRÁFICOS GERAIS
 # ------------------------------------
-# Evolução
+# Evolução (só dias)
 evol = df.sort_values("Data").groupby("Data", as_index=False)["Valor"].sum()
 evol["Patrimonio"] = evol["Valor"].cumsum()
-
-evol["Data"] = evol["Data"].dt.date
+evol["Data"] = evol["Data"].dt.date  # mostrar apenas o dia
 
 fig_evol = px.line(evol, x="Data", y="Patrimonio", markers=True, title="Evolução do Patrimônio")
 fig_evol.update_yaxes(tickprefix="R$ ", tickformat=",.2f")
-# 👇 formata o eixo X no estilo dd/mm/yyyy
 fig_evol.update_xaxes(tickformat="%d/%m/%Y")
 
 # Distribuição por Banco
@@ -112,18 +134,11 @@ c1, c2 = st.columns(2)
 c1.plotly_chart(fig_evol, use_container_width=True)
 c2.plotly_chart(fig_banco, use_container_width=True)
 
-# ----------------- NOVO BLOCO LADO A LADO -----------------
-# Distribuição por Classe
+# Distribuição por Classe e por Característica (lado a lado)
 dist_tipo = df.groupby("Tipo de Investimento", as_index=False)["Valor"].sum()
-fig_tipo = px.pie(
-    dist_tipo, names="Tipo de Investimento", values="Valor", hole=.45,
-    title="Distribuição por Classe"
-)
+fig_tipo = px.pie(dist_tipo, names="Tipo de Investimento", values="Valor", hole=.45, title="Distribuição por Classe")
 
-# Distribuição por Característica (Ativos)
 dist_char_total = df.groupby("Caracteristica", as_index=False)["Valor"].sum().sort_values("Valor", ascending=False)
-
-# (opcional) limitar para top 12 e somar o resto como "Outros" para não poluir
 TOP_N = 12
 if len(dist_char_total) > TOP_N:
     top = dist_char_total.head(TOP_N).copy()
@@ -131,16 +146,11 @@ if len(dist_char_total) > TOP_N:
     dist_char = pd.concat([top, pd.DataFrame([{"Caracteristica": "Outros", "Valor": outros_valor}])], ignore_index=True)
 else:
     dist_char = dist_char_total
-
-fig_char = px.pie(
-    dist_char, names="Caracteristica", values="Valor", hole=.45,
-    title="Distribuição por Características (Ativos)"
-)
+fig_char = px.pie(dist_char, names="Caracteristica", values="Valor", hole=.45, title="Distribuição por Características (Ativos)")
 
 c1, c2 = st.columns(2)
 c1.plotly_chart(fig_tipo, use_container_width=True)
 c2.plotly_chart(fig_char, use_container_width=True)
-# -----------------------------------------------------------
 
 # Top 10 Ativos (R$)
 top_ativos = dist_char_total.head(10)
